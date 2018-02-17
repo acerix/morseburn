@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<title>cpu morse code transmitter</title>
+<script src="https://cdn.rawgit.com/oftn-oswg/core-estimator/829056b4/core-estimator.min.js"></script>
+<script id="worker_burn" type="javascript/worker">
+self.onmessage = function(e) {
+  for (var t = Date.now(); t < e.data; t = Date.now()) {
+    Math.tan(t)
+  }
+}
+</script>
+
+<script>
+
+// how long each morse unit (dot) lasts in milliseconds
+var morse_unit_length = 256;
+
+var workers = [];
+var transmitter;
+
+window.onload = function() {
+
+  transmitter = new CPU_MorseCode()
+
+  var worker_blob = new Blob([document.querySelector('#worker_burn').textContent], {type: 'text/javascript'})
+
+  // start one process for each core we can use
+  navigator.getHardwareConcurrency(function() {
+
+    for (var i=0; i<navigator.hardwareConcurrency; i++) {
+        workers[i] = new Worker(window.URL.createObjectURL( worker_blob ))
+    }
+    setTimeout(transmitter.process_queue, 1024)
+  })
+
+}
+
+var morseCode = [
+    '01', // a
+    '1000',
+    '1010',
+    '100',
+    '0',
+    '0010',
+    '110',
+    '0000',
+    '00',
+    '0111',
+    '101',
+    '0100',
+    '11',
+    '10',
+    '111',
+    '0110',
+    '1101',
+    '010',
+    '000',
+    '1',
+    '001',
+    '0001',
+    '011',
+    '1001',
+    '1011',
+    '1100', // z
+    '11111', // 0
+    '01111',
+    '00111',
+    '00011',
+    '00001',
+    '00000',
+    '10000',
+    '11000',
+    '11100',
+    '11110' // 9
+]
+
+function CPU_MorseCode() {
+    var self = this;
+
+    // length of morse unit in milliseconds
+    self.morse_unit = morse_unit_length;
+
+    self.message_element = document.getElementById('message');
+    self.queue_element = document.getElementById('queue');
+    self.buffer_element = document.getElementById('buffer');
+
+    // also try burning the GPU
+    self.gl_burner = new gl_burner();
+    if (!gl) self.gl_burner = false;
+
+    self.send_message = function() {
+        self.queue_element.value += self.message_element.value;
+    };
+
+    self.clear_queue = function() {
+      self.queue_element.value = '';
+      self.buffer_element.value = '';
+    }
+
+    self.process_queue = function() {
+        if (self.queue_element.value.length) {
+            var c = self.queue_element.value.substr(0, 1).toLowerCase();
+            self.queue_element.value = self.queue_element.value.substr(1);
+            document.getElementById('buffer_char').value = c;
+            self.send_char(c.charCodeAt(0));
+            if (self.queue_element.value.length === 0) self.send_buffer.push(-2);
+            return self.process_buffer_animated();
+        }
+        else if (document.getElementById('autosend').checked) {
+            self.send_message();
+        }
+        setTimeout(self.process_queue, self.morse_unit);
+    };
+
+    self.send_buffer = [];
+
+    self.process_buffer = function() {
+        if (self.gl_burner) self.gl_burner.disable();
+        if (self.send_buffer.length) {
+            var n = self.send_buffer.shift();
+            if (n > 0) { // burn
+                self.burn(n * self.morse_unit);
+                //return self.process_buffer();
+            }
+            else if (n < 0) { // wait
+                return setTimeout(self.process_buffer_animated, -n * self.morse_unit);
+            }
+        }
+        // sleep
+        else setTimeout(self.process_queue, self.morse_unit);
+    };
+
+    self.process_buffer_animated = function() {
+        self.buffer_element.value = self.send_buffer;
+        setTimeout(self.process_buffer, 2);
+    };
+
+    self.send_char = function(c) {
+        switch (c) {
+
+            case 32:    // (space)
+            case 46:    // (period)
+                self.send_buffer.push(-2);
+                document.getElementById('buffer_code').value = '';
+                break;
+
+            default:
+
+                // for a - z
+                if (c > 96 && c < 123) self.send_code(morseCode[c - 97]);
+
+                // for 0 - 9
+                else if (c > 47 && c < 58) self.send_code(morseCode[c - 22]);
+
+                else {
+                  document.getElementById('buffer_code').value = '';
+                }
+
+        }
+        self.send_buffer.push(-2);
+    };
+
+    self.send_code = function(code) {
+        document.getElementById('buffer_code').value = code;
+        for (var i = 0, l = code.length; i < l; i++)
+            if (code[i]==='0')
+                self.dot();
+            else
+                self.dash();
+    };
+
+    self.dot = function() {
+        self.send_buffer.push(1, -1);
+    };
+
+    self.dash = function() {
+        self.send_buffer.push(3, -1);
+    };
+
+    self.burn = function(burn_length) {
+        setTimeout(self.process_buffer, burn_length);
+        if (self.gl_burner) self.gl_burner.enable();
+        for (var i=0,j=workers.length; i<j; i++) {
+            workers[i].postMessage(Date.now() + burn_length);
+        }
+    };
+
+}
+
+</script>
+
+
+
+
+
+<!-- web gl gpu burner ... copy pasted, needs cleanup -->
+
+
+<script id="shader-fs" type="text/x-fragment_shader">
+precision highp float;
+uniform float u_time;
+uniform vec2 translate;
+uniform vec2 scale;
+void main(void) {
+    float m_0 = ( gl_FragCoord.x + translate.x ) * scale.x;
+    float m_1 = ( gl_FragCoord.y + translate.y ) * scale.y;
+
+    float z = m_0 * m_1 - m_1 * m_1 + m_0 * m_0 * m_0;
+
+
+
+  float x = 0.0;
+  float y = 0.0;
+  for (int i=0; i < 50000; i++) {
+    x = sqrt(float(i) / 255.0);
+    y = tan(float(i) / 127.0);
+  }
+
+    gl_FragColor.r = mod(z + u_time, 1.0);
+    gl_FragColor.g = mod(z + u_time * 0.07, 1.0);
+    gl_FragColor.b = mod(z + u_time * 0.03, 1.0);
+
+}
+</script>
+
+<script id="shader-vs" type="text/x-vertex_shader">
+    attribute vec3 a_position;
+    attribute vec4 a_color;
+    varying vec4 v_color;
+    void main(void) {
+        gl_Position = vec4(a_position, 1);
+        v_color = a_color;
+    }
+</script>
+
+<script type="text/javascript">
+
+function getShader(gl, id) {
+    var scriptElement = document.getElementById(id);
+    var shader = gl.createShader(gl[scriptElement.type.replace('text/x-','').toUpperCase()]);
+    gl.shaderSource(shader, scriptElement.textContent);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
+    return shader;
+}
+
+var gl, program;
+var colorLocation;
+var squareVerticesColorBuffer;
+
+
+var gl_translate = [0, 0];
+var gl_scale = [1, 1];
+
+var gl_burner = function() {
+    var self = this;
+
+    self.burning = false;
+
+    canvas = document.getElementById('gl_burner');
+    canvas.width = 1024;
+    canvas.height = 128;
+
+    var gl_settings = {alpha: false, preserveDrawingBuffer: true};
+
+    gl = canvas.getContext("webgl", gl_settings)
+      || canvas.getContext("experimental-webgl", gl_settings);
+
+    canvas.centre = [Math.floor(canvas.width/2), Math.floor(canvas.height/2)];
+
+    gl_translate = [-canvas.centre[0], -canvas.centre[1]];
+
+    /*
+    gl_scale = [4/canvas.centre[0], 4/canvas.centre[1]];
+
+    if (gl_scale[0]<gl_scale[1]) gl_scale[0] = gl_scale[1];
+    else if (gl_scale[0]>gl_scale[1]) gl_scale[1] = gl_scale[0];
+    */
+
+    gl_scale = [1/128, 1/128];
+    //gl_scale = [1024, 1024];
+
+
+
+    self.enable = function() {
+      if (false===self.burning) {
+        self.burning = setInterval(drawScene,0);
+      }
+    };
+
+    self.disable = function() {
+      if (false!==self.burning) {
+        clearInterval(self.burning);
+        self.burning = false;
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+    };
+
+    if (gl) init();
+}
+
+var pot = 0;
+
+function drawScene() {
+    pot += 0.01;
+    //gl.uniform1f(timeUniform, Math.sin(pot / 64));
+    gl.uniform1f(timeUniform, pot);
+    gl.uniform2f(translateUniform, gl_translate[0], gl_translate[1]);
+    gl.uniform2f(scaleUniform, gl_scale[0], gl_scale[1]);
+    //gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, numVertices);
+    //var e; while (e = gl.getError()) console.log("GL error", e);
+}
+
+function init() {
+    gl.viewportWidth = canvas.width;
+    gl.viewportHeight = canvas.height;
+    //gl.viewportWidth = gl.viewportHeight = 4096;
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);  // Clear to black, fully opaque
+    //gl.clearDepth(1.0);                 // Clear everything
+    //gl.enable(gl.DEPTH_TEST);           // Enable depth testing
+    gl.depthFunc(gl.LEQUAL);            // Near things obscure far things
+    initShaders();
+};
+
+String.prototype.repeat = function( num )
+{
+    return new Array( num + 1 ).join( this );
+}
+
+var canvas, gl;
+var shaderProgram, positionAttr, timeUniform, mxUniform, myUniform, vertices, positionBuffer, numVertices;
+
+function initShaders() {
+      shaderProgram = gl.createProgram();
+      gl.attachShader(shaderProgram, getShader(gl, "shader-vs"));
+      gl.attachShader(shaderProgram, getShader(gl, "shader-fs"));
+
+      gl.linkProgram(shaderProgram);
+      if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS))
+        throw new Error(gl.getProgramInfoLog(shaderProgram));
+
+      gl.useProgram(shaderProgram);
+      positionAttr = gl.getAttribLocation(shaderProgram, "a_position");
+      gl.enableVertexAttribArray(positionAttr);
+
+      timeUniform = gl.getUniformLocation(shaderProgram, "u_time");
+      translateUniform = gl.getUniformLocation(shaderProgram, "translate");
+      scaleUniform = gl.getUniformLocation(shaderProgram, "scale");
+
+      vertices = [
+        +1, +1, 0,
+        -1, +1, 0,
+        +1, -1, 0,
+        -1, -1, 0
+      ];
+      positionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+      numVertices = vertices.length / 3;
+
+      gl.clearColor(0.3, 0.3, 0.3, 1.0);
+      gl.enable(gl.DEPTH_TEST);
+      gl.viewport(0, 0, gl.drawingBufferWidth || canvas.width,
+                        gl.drawingBufferHeight || canvas.height);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.vertexAttribPointer(positionAttr, 3, gl.FLOAT, false, 0, 0);
+
+}
+</script>
+
+</head>
+<body>
+    <h2>Message</h2>
+    <textarea id="message" rows="18" style="width:99%;">Hello World</textarea>
+    <br>
+    <input type="button" value="Send" onclick="transmitter.send_message();">
+    <label><input type="checkbox" id="autosend" checked> auto-send</label>
+
+    <h2>Queue</h2>
+    <textarea id="queue" rows="4" style="width:99%;border:none;" readonly></textarea>
+    <br>
+    <input type="button" value="Clear Queue" onclick="transmitter.clear_queue();">
+
+    <h2>Buffer</h2>
+    <input type="text" id="buffer_char" style="width:99%;border:none;" disabled>
+    <br>
+    <input type="text" id="buffer_code" style="width:99%;border:none;" disabled>
+    <br>
+    <input type="text" id="buffer" style="width:99%;border:none;" disabled>
+
+    <h2>GPU Burner</h2>
+    <canvas id="gl_burner"></canvas>
+</body>
+</html>
